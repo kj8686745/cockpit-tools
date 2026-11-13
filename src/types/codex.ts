@@ -399,6 +399,7 @@ export interface CodexSessionVisibilityRepairItem {
   backupDir?: string | null;
   running: boolean;
   historyProjectionCount?: number;
+  historyLineageRepairCount?: number;
 }
 
 export type CodexSessionVisibilityRepairMode = 'quick' | 'deep' | 'history' | 'projects';
@@ -472,6 +473,7 @@ export interface CodexSessionVisibilityRepairSummary {
   skippedSqliteFileCount: number;
   metadataRebuildFailedCount: number;
   historyProjectionCount?: number;
+  historyLineageRepairCount?: number;
   localProjectRecoveryDeferred?: boolean;
   localProjectRecoveryDeferredMessage?: string;
   localProjectRecovery?: {

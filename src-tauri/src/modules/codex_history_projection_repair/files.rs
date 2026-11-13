@@ -1,6 +1,6 @@
 use super::*;
 use crate::modules::codex_session_rollout_records::{Object, Records};
-use serde::{de::DeserializeOwned, Deserialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{
@@ -71,6 +71,19 @@ pub(super) struct Evidence {
     pub next_ordinal: u64,
     pub has_ordinals: bool,
     base: Option<Base>,
+    /// 仅保存可由完整父序号精确证明的过期 EOF 字节截止点。
+    lineage_repair: Option<LineageRepair>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct LineageRepair {
+    /// 保存过期 history_base 的物理 rollout ID。
+    pub source_id: String,
+    /// 扫描时原始元数据中的截止字节，用于应用前校验与备份恢复。
+    pub previous_offset: u64,
+    /// 父文件连续序号对应的当前解码 EOF 字节位置。
+    pub repaired_offset: u64,
 }
 
 #[derive(Debug)]
@@ -81,6 +94,12 @@ struct Base {
 }
 
 impl Evidence {
+    pub fn raw_hash(&self) -> [u8; 32] {
+        self.hash
+    }
+    pub fn lineage_repair(&self) -> Option<LineageRepair> {
+        self.lineage_repair.clone()
+    }
     pub fn check_stamp(&self) -> Result<(), String> {
         if stamp(&self.path)? != self.stamp {
             return Err(error("CHANGED", "rollout changed during repair"));
@@ -324,20 +343,33 @@ pub(super) fn load_chain(
     let path = registry
         .get(id)
         .ok_or_else(|| SourceError::Missing(id.to_owned()))?;
-    let source = read(path, budget)?;
+    let mut source = read(path, budget)?;
     if let Some(base) = &source.base {
         load_chain(&base.id, registry, sources, visiting, budget)?;
         let parent = &sources[&base.id];
-        // The official store pages by ordinal; old byte cutoffs need not equal an exact line boundary.
-        if base.ordinal == 0
-            || base.bytes > parent.decoded_bytes
-            || base.ordinal > parent.next_ordinal
-        {
+        // 必须先证明祖先记录连续且覆盖截止序号；不从缺失记录中猜测历史。
+        if base.ordinal == 0 || base.ordinal > parent.next_ordinal {
             return Err(error(
                 "UNSAFE_HISTORY",
                 format!("ancestor cutoff is unavailable for {id}"),
             )
             .into());
+        }
+        if base.bytes > parent.decoded_bytes {
+            // 旧工具缩短 rollout 后，字节截止点可能失效。只有截止序号恰为父 EOF
+            // 时，当前解码字节数才是唯一可证明的新值；其余边界继续拒绝。
+            if base.ordinal != parent.next_ordinal {
+                return Err(error(
+                    "UNSAFE_HISTORY",
+                    format!("ancestor cutoff is unavailable for {id}"),
+                )
+                .into());
+            }
+            source.lineage_repair = Some(LineageRepair {
+                source_id: id.to_owned(),
+                previous_offset: base.bytes,
+                repaired_offset: parent.decoded_bytes,
+            });
         }
     }
     visiting.remove(id);
@@ -536,6 +568,7 @@ fn read(path: &Path, budget: &Budget) -> Result<Evidence, SourceError> {
         next_ordinal: expected,
         has_ordinals: true,
         base,
+        lineage_repair: None,
     })
 }
 

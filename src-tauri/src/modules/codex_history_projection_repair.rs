@@ -1,5 +1,6 @@
-//! Manual recovery of derived Codex history indexes, including while the client runs.
-//! Durable rollouts are read-only; concurrent changes abort the repair.
+//! 手动恢复 Codex 历史派生索引；仅重置投影时允许客户端保持运行。
+//! 经序号证明的过期祖先 EOF 截止点须先停止实例，再备份并修正，保持全部解码字节跨度。
+//! 任何其它源内容或并发变化均不得被本模块覆盖。
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
@@ -10,6 +11,8 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior};
 
 #[path = "codex_history_projection_repair/files.rs"]
 mod files;
+#[path = "codex_history_projection_repair/lineage.rs"]
+mod lineage;
 pub(super) use files::file_ids as rollout_file_ids;
 #[path = "codex_history_projection_repair/storage.rs"]
 mod storage;
@@ -30,6 +33,8 @@ pub(crate) struct Plan {
     sources: HashMap<String, files::Evidence>,
     selected_paths: Vec<(String, String)>,
     candidates: Vec<Checkpoint>,
+    /// 仅修正经连续序号证明的祖先 EOF 截止点，不改正文或记录字节位置。
+    lineage_repairs: Vec<files::LineageRepair>,
     /// 保留扫描时限，以同一预算保护后续备份和索引事务。
     scan_budget: Duration,
     // Requested/projected ID and missing source ID. Their existing indexes are retained.
@@ -44,6 +49,14 @@ impl Plan {
 
     pub(crate) fn scanned_files(&self) -> usize {
         self.sources.len()
+    }
+
+    pub(crate) fn lineage_repair_count(&self) -> usize {
+        self.lineage_repairs.len()
+    }
+
+    pub(crate) fn has_changes(&self) -> bool {
+        !self.candidates.is_empty() || !self.lineage_repairs.is_empty()
     }
 }
 
@@ -160,6 +173,7 @@ pub(crate) fn scan_with_budget(
             sources: HashMap::new(),
             selected_paths: vec![],
             candidates: vec![],
+            lineage_repairs: vec![],
             scan_budget,
             skipped_sources: vec![],
             duplicate_ordinals: vec![],
@@ -275,10 +289,21 @@ pub(crate) fn scan_with_budget(
         candidates.push(saved);
     }
     candidates.sort_by(|a, b| a.id.cmp(&b.id));
+    let mut lineage_repairs = sources
+        .values()
+        .filter_map(files::Evidence::lineage_repair)
+        .collect::<Vec<_>>();
+    lineage_repairs.sort_by(|a, b| a.source_id.cmp(&b.source_id));
     if candidates.len() > MAX_CANDIDATES {
         return Err(error(
             "LIMIT",
             "too many damaged projections; select fewer sessions",
+        ));
+    }
+    if lineage_repairs.len() > MAX_CANDIDATES {
+        return Err(error(
+            "LIMIT",
+            "too many stale lineage cutoffs; select fewer sessions",
         ));
     }
     Ok(Plan {
@@ -288,13 +313,17 @@ pub(crate) fn scan_with_budget(
         sources,
         selected_paths,
         candidates,
+        lineage_repairs,
         scan_budget,
         skipped_sources,
         duplicate_ordinals,
     })
 }
 
-/// Persist a typed, bounded backup before atomically invalidating only proven stale projections.
+/// 先持久化有界备份，再修复已证明的祖先截止点及派生投影。
+///
+/// 调用方在 `lineage_repair_count() > 0` 时必须先确认目标 Codex 实例已停止；
+/// 纯投影修复仍通过源哈希及 SQLite 事务保护在线客户端。
 pub(crate) fn apply(profile: &Path, plan: &Plan, backup_dir: &Path) -> Result<usize, String> {
     apply_with_checkpoints(profile, plan, backup_dir, &|| {})
 }
@@ -309,7 +338,7 @@ fn apply_with_checkpoints(
     if files::profile_root(profile)? != plan.profile {
         return Err(error("CHANGED", "profile changed since scan"));
     }
-    if plan.candidates.is_empty() {
+    if !plan.has_changes() {
         return Ok(0);
     }
     let mut budget = Budget::new(plan.scan_budget);
@@ -334,45 +363,59 @@ fn apply_with_checkpoints(
         rows
     };
     storage::backup(backup_dir, plan, &snapshots, &mut budget)?;
+    // 原始 rollout 先校验并备份，再准备保持解码字节跨度不变的替换文件。
+    let mut lineage = lineage::Prepared::new(plan, backup_dir, &mut budget)?;
     checkpoint();
     // Expensive decompression and hashing finished before acquiring the write transaction.
     for source in plan.sources.values() {
         source.check_stamp()?;
     }
     validate_selection(plan)?;
-    let tx = db
-        .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(|e| error("DATABASE", e))?;
-    if storage::schema(&tx)? != plan.schema {
-        return Err(error("CHANGED", "history database schema changed"));
-    }
-    validate_cursors(&tx, plan)?;
-    if storage::capture(&tx, &plan.schema, &plan.candidates, &mut budget)? != snapshots {
-        return Err(error("CHANGED", "derived history changed after backup"));
-    }
-    for candidate in &plan.candidates {
-        for table in storage::TABLES {
-            budget.check()?;
-            tx.execute(
-                &format!("DELETE FROM {table} WHERE thread_id=?1"),
-                [&candidate.id],
-            )
+    let result = (|| {
+        let tx = db
+            .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|e| error("DATABASE", e))?;
+        if storage::schema(&tx)? != plan.schema {
+            return Err(error("CHANGED", "history database schema changed"));
         }
+        validate_cursors(&tx, plan)?;
+        if storage::capture(&tx, &plan.schema, &plan.candidates, &mut budget)? != snapshots {
+            return Err(error("CHANGED", "derived history changed after backup"));
+        }
+        for candidate in &plan.candidates {
+            for table in storage::TABLES {
+                budget.check()?;
+                tx.execute(
+                    &format!("DELETE FROM {table} WHERE thread_id=?1"),
+                    [&candidate.id],
+                )
+                .map_err(|e| error("DATABASE", e))?;
+            }
+        }
+        // 文件替换位于 SQLite 提交前；任何后续错误先回滚 SQLite，再恢复原始文件。
+        lineage.publish()?;
+        checkpoint();
+        lineage.check_sources(plan)?;
+        if files::identity(&plan.profile.join(HISTORY_DB))? != plan.db_identity {
+            return Err(error(
+                "CHANGED",
+                "history database was replaced during repair",
+            ));
+        }
+        budget.check()?;
+        tx.commit().map_err(|e| error("DATABASE", e))?;
+        Ok(plan.candidates.len())
+    })();
+    match result {
+        Ok(count) => Ok(count),
+        Err(failure) => match lineage.rollback() {
+            Ok(()) => Err(failure),
+            Err(rollback) => Err(format!(
+                "{failure}; {rollback}; backup={}",
+                backup_dir.display()
+            )),
+        },
     }
-    checkpoint();
-    for source in plan.sources.values() {
-        source.check_stamp()?;
-    }
-    if files::identity(&plan.profile.join(HISTORY_DB))? != plan.db_identity {
-        return Err(error(
-            "CHANGED",
-            "history database was replaced during repair",
-        ));
-    }
-    budget.check()?;
-    tx.commit().map_err(|e| error("DATABASE", e))?;
-    Ok(plan.candidates.len())
 }
 
 fn validate_cursors(db: &Connection, plan: &Plan) -> Result<(), String> {

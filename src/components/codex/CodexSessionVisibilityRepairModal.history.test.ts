@@ -289,6 +289,23 @@ test('a history preview refreshes returned running states after exit and retains
   app.h.unmount();
 });
 
+test('a running instance must stop before applying a planned lineage metadata repair', async () => {
+  const app = harness({ running: true });
+  await settlePromises();
+  app.execute(async (request) => ({
+    message: request.dryRun ? 'one lineage boundary repair' : 'should not run while active',
+    historyProjectionCount: 0,
+    historyLineageRepairCount: 1,
+    items: [{ instanceId: 'default', running: true }],
+  }));
+  app.button('preview').props.onClick();
+  await settlePromises();
+  assert.equal(app.button('confirmRepair').props.disabled, true);
+  assert.ok(app.rendered().some((node) => contains(node, prefix + 'stopInstanceHint')));
+  assert.equal(app.rendered().some((node) => contains(node, prefix + 'historyLiveHint')), false);
+  app.h.unmount();
+});
+
 test('all-chat/all-instance history requests retain null scopes without inferring a provider', async () => {
   const app = harness({ selected: [] });
   await settlePromises();

@@ -552,7 +552,8 @@ pub(super) fn backup(
         .iter()
         .map(|(id, source)| (id.clone(), source.backup_metadata()))
         .collect::<std::collections::BTreeMap<_, _>>();
-    let metadata = serde_json::json!({"formatVersion":1,"profile":plan.profile,"sourceSchema":plan.schema.objects,"sourceMigrations":plan.schema.migrations,"sourceFiles":source_metadata,"projectionIds":plan.candidates.iter().map(|c|&c.id).collect::<Vec<_>>(),"typedRowsSha256":snapshot.digest});
+    // lineage 原始文件按文件名保存在 rollouts/；sourceFiles 内的 SHA256 可校验恢复副本。
+    let metadata = serde_json::json!({"formatVersion":1,"profile":plan.profile,"sourceSchema":plan.schema.objects,"sourceMigrations":plan.schema.migrations,"sourceFiles":source_metadata,"projectionIds":plan.candidates.iter().map(|c|&c.id).collect::<Vec<_>>(),"lineageRepairs":plan.lineage_repairs,"typedRowsSha256":snapshot.digest});
     tx.execute(
         "INSERT INTO repair_metadata VALUES ('repair',?1)",
         [metadata.to_string()],

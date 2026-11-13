@@ -157,6 +157,8 @@ pub struct CodexSessionVisibilityRepairItem {
     pub running: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub history_projection_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub history_lineage_repair_count: Option<usize>,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -183,6 +185,8 @@ pub struct CodexSessionVisibilityRepairSummary {
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub history_projection_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub history_lineage_repair_count: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub local_project_recovery: Option<local_projects::Counts>,
     pub local_project_recovery_deferred: bool,
@@ -881,6 +885,7 @@ fn repair_provider_visibility_for_instances_with_options(
                 backup_dir: None,
                 running,
                 history_projection_count: None,
+                history_lineage_repair_count: None,
             });
             continue;
         }
@@ -921,6 +926,7 @@ fn repair_provider_visibility_for_instances_with_options(
                 backup_dir: None,
                 running,
                 history_projection_count: None,
+                history_lineage_repair_count: None,
             });
             continue;
         }
@@ -1070,6 +1076,7 @@ fn repair_provider_visibility_for_instances_with_options(
             backup_dir: Some(backup_dir_string),
             running,
             history_projection_count: None,
+            history_lineage_repair_count: None,
         });
     }
 
@@ -1155,6 +1162,7 @@ fn repair_provider_visibility_for_instances_with_options(
         backup_dirs,
         message,
         history_projection_count: None,
+        history_lineage_repair_count: None,
         history_repair_warning: None,
         local_project_recovery: None,
         local_project_recovery_deferred: false,

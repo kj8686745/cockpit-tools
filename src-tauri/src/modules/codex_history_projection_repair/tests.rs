@@ -180,6 +180,161 @@ fn history_projection_repair_zstd_ancestor_uses_physical_ids_and_keeps_original_
 }
 
 #[test]
+fn history_projection_repair_recovers_proven_eof_cutoff_with_original_backup() {
+    for compressed in [false, true] {
+        let mut f = Fixture::new();
+        let parent = records(ROOT, None, 0);
+        let child = records(
+            LOGICAL,
+            Some(json!({
+                "thread_id": ROOT, "end_byte_offset": 999999999,
+                "end_ordinal_exclusive": 3
+            })),
+            3,
+        );
+        if compressed {
+            let old = f.child.clone();
+            f.child = f.child.with_extension("jsonl.zst");
+            fs::remove_file(old).unwrap();
+            Connection::open(f.root.join(STATE_DB))
+                .unwrap()
+                .execute(
+                    "UPDATE threads SET rollout_path=?1 WHERE id=?2",
+                    [f.child.to_str().unwrap(), LOGICAL],
+                )
+                .unwrap();
+        }
+        let stored = if compressed {
+            zstd::stream::encode_all(child.as_slice(), 0).unwrap()
+        } else {
+            child.clone()
+        };
+        fs::write(&f.child, &stored).unwrap();
+        let plan = f.plan();
+        assert_eq!(plan.lineage_repair_count(), 1);
+        assert_eq!(plan.candidate_count(), 1);
+        let backup = f.root.join("eof-cutoff-backup");
+        assert_eq!(apply(&f.root, &plan, &backup).unwrap(), 1);
+        let repaired = fs::read(&f.child).unwrap();
+        let decoded = if compressed {
+            zstd::stream::decode_all(repaired.as_slice()).unwrap()
+        } else {
+            repaired
+        };
+        assert_eq!(decoded.len(), child.len());
+        let original_tail = child.iter().position(|&b| b == b'\n').unwrap();
+        assert_eq!(&decoded[original_tail..], &child[original_tail..]);
+        let header: serde_json::Value = serde_json::from_slice(&decoded[..original_tail]).unwrap();
+        assert_eq!(
+            header["payload"]["history_base"]["end_byte_offset"],
+            parent.len()
+        );
+        assert_eq!(
+            fs::read(backup.join("rollouts").join(f.child.file_name().unwrap())).unwrap(),
+            stored
+        );
+        assert_eq!(f.count(ROOT), 0);
+        assert_eq!(f.count(CHILD), 1);
+        let retry = f.plan();
+        assert!(!retry.has_changes());
+        assert_eq!(retry.lineage_repair_count(), 0);
+    }
+}
+
+#[test]
+fn history_projection_repair_lineage_only_is_not_an_empty_plan() {
+    let f = Fixture::new();
+    let parent = records(ROOT, None, 0);
+    let child = records(
+        LOGICAL,
+        Some(json!({
+            "thread_id": ROOT, "end_byte_offset": parent.len() + 1035,
+            "end_ordinal_exclusive": 3
+        })),
+        3,
+    );
+    fs::write(&f.child, &child).unwrap();
+    f.db().execute("UPDATE thread_history_projection_state SET next_rollout_byte_offset=?1 WHERE thread_id=?2", rusqlite::params![parent.len(), ROOT]).unwrap();
+    let plan = f.plan();
+    assert_eq!(plan.candidate_count(), 0);
+    assert_eq!(plan.lineage_repair_count(), 1);
+    assert!(plan.has_changes());
+    assert_eq!(
+        apply(&f.root, &plan, &f.root.join("lineage-only-backup")).unwrap(),
+        0
+    );
+    assert_eq!(f.count(ROOT), 1);
+    assert!(!f.plan().has_changes());
+}
+
+#[test]
+fn history_projection_repair_does_not_guess_non_eof_or_missing_ordinal_cutoffs() {
+    for cutoff in [2, 4] {
+        let f = Fixture::new();
+        let child = records(
+            LOGICAL,
+            Some(json!({
+                "thread_id": ROOT, "end_byte_offset": 999999999,
+                "end_ordinal_exclusive": cutoff
+            })),
+            cutoff,
+        );
+        fs::write(&f.child, &child).unwrap();
+        assert!(scan(&f.root, None, &|_, _| {})
+            .unwrap_err()
+            .contains("UNSAFE_HISTORY"));
+        assert_eq!(fs::read(&f.child).unwrap(), child);
+        assert_eq!(f.count(ROOT), 1);
+    }
+}
+
+#[test]
+fn history_projection_repair_lineage_rollback_restores_compressed_and_plain_sources() {
+    for compressed in [false, true] {
+        let mut f = Fixture::new();
+        let child = records(
+            LOGICAL,
+            Some(json!({
+                "thread_id": ROOT, "end_byte_offset": 999999999,
+                "end_ordinal_exclusive": 3
+            })),
+            3,
+        );
+        if compressed {
+            let old = f.child.clone();
+            f.child = f.child.with_extension("jsonl.zst");
+            fs::remove_file(old).unwrap();
+            Connection::open(f.root.join(STATE_DB))
+                .unwrap()
+                .execute(
+                    "UPDATE threads SET rollout_path=?1 WHERE id=?2",
+                    [f.child.to_str().unwrap(), LOGICAL],
+                )
+                .unwrap();
+        }
+        let stored = if compressed {
+            zstd::stream::encode_all(child.as_slice(), 0).unwrap()
+        } else {
+            child
+        };
+        fs::write(&f.child, &stored).unwrap();
+        let plan = f.plan();
+        let checkpoints = Cell::new(0);
+        let result =
+            apply_with_checkpoints(&f.root, &plan, &f.root.join("rollback-lineage"), &|| {
+                checkpoints.set(checkpoints.get() + 1);
+                if checkpoints.get() == 2 {
+                    // 文件替换后制造源校验失败，验证 SQLite 回滚及原始文件恢复。
+                    fs::write(&f.parent, b"external change").unwrap();
+                }
+            });
+        assert!(result.unwrap_err().contains("CHANGED"));
+        assert_eq!(fs::read(&f.child).unwrap(), stored);
+        assert_eq!(f.count(ROOT), 1);
+    }
+}
+
+#[test]
 fn history_projection_repair_backup_preserves_sqlite_storage_types() {
     let f = Fixture::new();
     f.db()

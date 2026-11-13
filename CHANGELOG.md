@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.3.84] - 2026-11-13
+
+### Fixed
+
+- **Codex history repair**: Recover stale paginated-history EOF offsets only when contiguous ancestor ordinals prove the exact boundary. Back up the original rollout and preserve decoded record positions.
+
 ## [1.3.83] - 2026-11-13
 
 ### Fixed

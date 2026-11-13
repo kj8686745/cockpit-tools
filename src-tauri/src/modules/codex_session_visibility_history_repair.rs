@@ -11,6 +11,8 @@ fn history_repair_error(error: String) -> String {
     modules::logger::log_warn(&format!("[Codex History Index] {error}"));
     if error.starts_with("CODEX_HISTORY_REPAIR_CHANGED") {
         history_repair_message("historyChanged", &[])
+    } else if error.starts_with("CODEX_HISTORY_REPAIR_STOP_REQUIRED") {
+        history_repair_message("stopInstanceHint", &[])
     } else {
         history_repair_message("historyFailed", &[("error", &error)])
     }
@@ -114,10 +116,12 @@ fn apply_history_projection_plans(
     let mut summary = CodexSessionVisibilityRepairSummary {
         instance_count: instances.len(),
         history_projection_count: Some(0),
+        history_lineage_repair_count: Some(0),
         history_repair_warning: history_duplicate_ordinals_warning(instances, &plans),
         ..Default::default()
     };
     let mut total = 0;
+    let mut lineage_total = 0;
     let mut skipped = Vec::new();
     for (index, (instance, (plan, running))) in instances.iter().zip(plans).enumerate() {
         for (id, missing) in &plan.skipped_sources {
@@ -128,8 +132,15 @@ fn apply_history_projection_plans(
             ));
         }
         let candidates = plan.candidate_count();
+        let lineage_repairs = plan.lineage_repair_count();
+        if !options.dry_run && running && lineage_repairs > 0 {
+            return Err(history_repair_error(format!(
+                "CODEX_HISTORY_REPAIR_STOP_REQUIRED: {} validated history lineage boundaries need metadata correction; close the Codex instance and retry",
+                lineage_repairs,
+            )));
+        }
         let mut backup_dir = None;
-        if candidates > 0 && !options.dry_run {
+        if plan.has_changes() && !options.dry_run {
             let scope = modules::backup_storage::scope_for_path(&instance.data_dir);
             let backup = modules::backup_storage::behavior_backup_dir(
                 "codex",
@@ -156,28 +167,30 @@ fn apply_history_projection_plans(
                 // repairs and their backups observable rather than claiming an
                 // all-or-nothing outcome across independent SQLite databases.
                 let context = format!(
-                    "{error}; repaired_projections={total}; completed_backups={:?}; backup={}",
+                    "{error}; repaired_projections={total}; repaired_lineage_boundaries={lineage_total}; completed_backups={:?}; backup={}",
                     summary.backup_dirs,
                     backup.display(),
                 );
-                history_repair_error(if total > 0 {
+                history_repair_error(if total > 0 || lineage_total > 0 {
                     format!("CODEX_HISTORY_REPAIR_PARTIAL: {context}")
                 } else {
                     context
                 })
             })?;
             total += repaired;
+            lineage_total += lineage_repairs;
             let path = backup.to_string_lossy().into_owned();
             modules::logger::log_info(&format!(
-                "[Codex History Index] backup={}, reset_projections={repaired}",
+                "[Codex History Index] backup={}, reset_projections={repaired}, repaired_lineage_boundaries={lineage_repairs}",
                 path,
             ));
             summary.backup_dirs.push(path.clone());
             backup_dir = Some(path);
         } else {
             total += candidates;
+            lineage_total += lineage_repairs;
         }
-        if candidates > 0 {
+        if plan.has_changes() {
             summary.mutated_instance_count += 1;
         }
         summary.items.push(CodexSessionVisibilityRepairItem {
@@ -186,14 +199,16 @@ fn apply_history_projection_plans(
             running,
             backup_dir,
             history_projection_count: Some(candidates),
+            history_lineage_repair_count: Some(lineage_repairs),
             ..Default::default()
         });
         modules::logger::log_info(&format!(
-            "[Codex History Index] instance_id={}, preview={}, scanned_files={}, affected_projections={candidates}",
+            "[Codex History Index] instance_id={}, preview={}, scanned_files={}, affected_projections={candidates}, lineage_repairs={lineage_repairs}",
             instance.id, options.dry_run, plan.scanned_files(),
         ));
     }
     summary.history_projection_count = Some(total);
+    summary.history_lineage_repair_count = Some(lineage_total);
     if !skipped.is_empty() {
         let missing = history_repair_message(
             "historySkippedSources",
@@ -208,14 +223,17 @@ fn apply_history_projection_plans(
         });
     }
     summary.message = history_repair_message(
-        if total == 0 {
+        if total == 0 && lineage_total == 0 {
             "historyNoChanges"
         } else if options.dry_run {
             "historyPreview"
         } else {
             "historySuccess"
         },
-        &[("count", &total.to_string())],
+        &[
+            ("count", &(total + lineage_total).to_string()),
+            ("lineageCount", &lineage_total.to_string()),
+        ],
     );
     report_repair_progress(
         progress_reporter,

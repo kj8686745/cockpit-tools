@@ -342,7 +342,12 @@ export function CodexSessionVisibilityRepairModal({
     selectedInstanceId,
     selectedInstanceScope,
   ]);
-  const repairRequiresStop = (selectedMode === "deep" || selectedMode === "projects") && hasRunningRepairTarget;
+  const hasPlannedHistoryLineageRepair =
+    isHistoryRepair && (previewSummary?.historyLineageRepairCount ?? 0) > 0;
+  const repairRequiresStop =
+    ((selectedMode === "deep" || selectedMode === "projects") ||
+      hasPlannedHistoryLineageRepair) &&
+    hasRunningRepairTarget;
   const repairDisabled = startDisabled || repairRequiresStop;
   const hasPreview = previewSummary !== null;
 
@@ -1035,7 +1040,12 @@ export function CodexSessionVisibilityRepairModal({
             <div className="codex-api-switch-notice-repair-status is-warning">
               <span>
                 {isHistoryRepair
-                  ? t("codex.sessionManager.repairModal.historyLiveHint")
+                  ? hasPlannedHistoryLineageRepair
+                    ? t(
+                        "codex.sessionManager.repairModal.stopInstanceHint",
+                        "完整修复前请先完全退出所选 Codex App/ChatGPT 实例；仍可先预览变更。",
+                      )
+                    : t("codex.sessionManager.repairModal.historyLiveHint")
                   : selectedMode === "projects"
                     ? t("codex.sessionManager.repairModal.projectsStopHint")
                     : t(
