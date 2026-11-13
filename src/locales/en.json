@@ -4988,6 +4988,8 @@
         "modeHistoryDesc": "Repair editing and chat branching failures caused by invalid indexes.",
         "historyLiveHint": "You can repair while the client is running. Restart the client and reopen the chats afterward.",
         "historyDescription": "Check selected chats and their ancestor history, resetting only invalid paginated indexes. Chat records, accounts and Provider settings stay unchanged. Repair can run while the client is open; restart it afterward to reload indexes.",
+        "historyScanBudgetLabel": "Full scan time limit (minutes)",
+        "historyScanBudgetHint": "Full repair scans all history in the selected instances. Set 1–240 minutes per instance; default is 10 minutes.",
         "historyPreview": "Found {{count}} invalid history indexes that can be rebuilt. Chat records stay unchanged.",
         "historySuccess": "Reset {{count}} invalid history indexes. Restart the client and reopen the chats to rebuild them. Backups were retained.",
         "historyNoChanges": "No invalid history indexes were found that can be safely rebuilt.",

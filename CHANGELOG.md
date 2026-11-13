@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.3.83] - 2026-11-13
+
+### Fixed
+
+- **Codex history index repair**: Configure the per-instance scan time limit for full history repair from 1 to 240 minutes; the default is 10 minutes. Hash rollout files during the validation stream to avoid reading large histories twice.
+- **Codex proxy bypass**: Preserve valid private IP/CIDR entries from legacy custom launch arguments and merge them with configured direct hosts while retaining the account proxy.
+
 ## [1.3.82] - 2026-11-12
 
 ### Added

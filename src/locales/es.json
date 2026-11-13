@@ -4027,6 +4027,8 @@
         "modeHistoryDesc": "Corrige fallos al editar mensajes y ramificar chats causados por índices no válidos.",
         "historyLiveHint": "Puedes reparar con el cliente abierto. Después, reinicia el cliente y vuelve a abrir los chats.",
         "historyDescription": "Comprueba los chats seleccionados y su historial de origen y restablece solo los índices de paginación no válidos. Los mensajes, cuentas y ajustes de Provider no cambian. Puedes reparar con el cliente abierto; reinícialo después para recargar los índices.",
+        "historyScanBudgetLabel": "Límite de tiempo del análisis completo (minutos)",
+        "historyScanBudgetHint": "La reparación completa analiza todo el historial de las instancias seleccionadas. Configura entre 1 y 240 minutos por instancia; el valor predeterminado es 10 minutos.",
         "historyPreview": "Se encontraron {{count}} índices de historial incorrectos que pueden reconstruirse. Los mensajes no cambian.",
         "historySuccess": "Se restablecieron {{count}} índices de historial no válidos. Reinicia el cliente y vuelve a abrir los chats para reconstruirlos. Se conservaron las copias de seguridad.",
         "historyNoChanges": "No se encontraron índices de historial incorrectos que puedan reconstruirse de forma segura.",

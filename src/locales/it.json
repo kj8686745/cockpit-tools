@@ -4027,6 +4027,8 @@
         "modeHistoryDesc": "Corregge gli errori di modifica dei messaggi e creazione di diramazioni dovuti a indici non validi.",
         "historyLiveHint": "Puoi riparare mentre il client è aperto. Poi riavvia il client e riapri le chat.",
         "historyDescription": "Controlla le chat selezionate e la cronologia di origine, reimpostando solo gli indici di paginazione non validi. Messaggi, account e impostazioni Provider restano invariati. La riparazione funziona con il client aperto; riavvialo poi per ricaricare gli indici.",
+        "historyScanBudgetLabel": "Limite di tempo scansione completa (minuti)",
+        "historyScanBudgetHint": "La riparazione completa esegue la scansione di tutta la cronologia delle istanze selezionate. Imposta 1–240 minuti per istanza; il valore predefinito è 10 minuti.",
         "historyPreview": "Trovati {{count}} indici di cronologia non validi ricostruibili. I messaggi restano invariati.",
         "historySuccess": "Reimpostati {{count}} indici di cronologia non validi. Riavvia il client e riapri le chat per ricostruirli. I backup sono stati conservati.",
         "historyNoChanges": "Nessun indice di cronologia non valido può essere ricostruito in sicurezza.",

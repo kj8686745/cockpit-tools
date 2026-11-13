@@ -4027,6 +4027,8 @@
         "modeHistoryDesc": "Corrige les échecs de modification des messages et de création de branches dus à des index invalides.",
         "historyLiveHint": "La réparation est possible pendant que le client est ouvert. Redémarrez ensuite le client et rouvrez les discussions.",
         "historyDescription": "Vérifie les discussions sélectionnées et leur historique parent et réinitialise uniquement les index de pagination invalides. Les messages, comptes et paramètres Provider restent inchangés. La réparation fonctionne avec le client ouvert ; redémarrez-le ensuite pour recharger les index.",
+        "historyScanBudgetLabel": "Délai maximal de l’analyse complète (minutes)",
+        "historyScanBudgetHint": "La réparation complète analyse tout l’historique des instances sélectionnées. Définissez 1 à 240 minutes par instance ; la valeur par défaut est de 10 minutes.",
         "historyPreview": "{{count}} index d’historique invalides peuvent être reconstruits. Les messages restent inchangés.",
         "historySuccess": "{{count}} index d’historique invalides réinitialisés. Redémarrez le client et rouvrez les discussions pour les reconstruire. Les sauvegardes ont été conservées.",
         "historyNoChanges": "Aucun index d’historique invalide pouvant être reconstruit en toute sécurité n’a été trouvé.",

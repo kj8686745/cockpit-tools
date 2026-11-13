@@ -4027,6 +4027,8 @@
         "modeHistoryDesc": "Khắc phục lỗi sửa tin nhắn và tạo nhánh trò chuyện do chỉ mục không hợp lệ.",
         "historyLiveHint": "Có thể sửa khi ứng dụng khách đang chạy. Sau đó, hãy khởi động lại ứng dụng khách và mở lại các cuộc trò chuyện.",
         "historyDescription": "Kiểm tra các cuộc trò chuyện đã chọn và lịch sử gốc, chỉ đặt lại các chỉ mục phân trang không hợp lệ. Tin nhắn, tài khoản và cài đặt Provider được giữ nguyên. Có thể sửa khi ứng dụng khách đang chạy; sau đó khởi động lại để tải lại chỉ mục.",
+        "historyScanBudgetLabel": "Giới hạn thời gian quét toàn bộ (phút)",
+        "historyScanBudgetHint": "Sửa chữa toàn bộ sẽ quét toàn bộ lịch sử trong các phiên bản đã chọn. Đặt 1–240 phút cho mỗi phiên bản; mặc định là 10 phút.",
         "historyPreview": "Tìm thấy {{count}} chỉ mục lịch sử bị lỗi có thể tạo lại. Bản ghi trò chuyện được giữ nguyên.",
         "historySuccess": "Đã đặt lại {{count}} chỉ mục lịch sử không hợp lệ. Hãy khởi động lại ứng dụng khách và mở lại các cuộc trò chuyện để tạo lại chỉ mục. Các bản sao lưu đã được giữ lại.",
         "historyNoChanges": "Không tìm thấy chỉ mục lịch sử bị lỗi nào có thể tạo lại an toàn.",

@@ -4027,6 +4027,8 @@
         "modeHistoryDesc": "Corrige falhas ao editar mensagens e ramificar chats causadas por índices inválidos.",
         "historyLiveHint": "Você pode reparar com o cliente aberto. Depois, reinicie o cliente e reabra as conversas.",
         "historyDescription": "Verifica as conversas selecionadas e seu histórico de origem, redefinindo apenas os índices de paginação inválidos. Mensagens, contas e configurações de Provider permanecem intactas. O reparo funciona com o cliente aberto; reinicie-o depois para recarregar os índices.",
+        "historyScanBudgetLabel": "Limite de tempo da verificação completa (minutos)",
+        "historyScanBudgetHint": "O reparo completo verifica todo o histórico das instâncias selecionadas. Defina de 1 a 240 minutos por instância; o padrão é 10 minutos.",
         "historyPreview": "Foram encontrados {{count}} índices de histórico inválidos que podem ser reconstruídos. As mensagens permanecem intactas.",
         "historySuccess": "Foram redefinidos {{count}} índices de histórico inválidos. Reinicie o cliente e reabra as conversas para reconstruí-los. Os backups foram mantidos.",
         "historyNoChanges": "Nenhum índice de histórico inválido pode ser reconstruído com segurança.",

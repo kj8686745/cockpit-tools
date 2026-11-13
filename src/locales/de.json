@@ -4027,6 +4027,8 @@
         "modeHistoryDesc": "Behebt Fehler beim Bearbeiten und Verzweigen von Chats durch ungültige Indizes.",
         "historyLiveHint": "Die Reparatur ist bei laufendem Client möglich. Starten Sie danach den Client neu und öffnen Sie die Chats erneut.",
         "historyDescription": "Prüft ausgewählte Chats und deren Ursprungshistorie und setzt nur ungültige Seitenindizes zurück. Chatdaten, Konten und Provider-Einstellungen bleiben unverändert. Die Reparatur ist im laufenden Betrieb möglich; ein Neustart lädt die Indizes neu.",
+        "historyScanBudgetLabel": "Zeitlimit für den vollständigen Scan (Minuten)",
+        "historyScanBudgetHint": "Die vollständige Reparatur scannt den gesamten Verlauf der ausgewählten Instanzen. Lege pro Instanz 1–240 Minuten fest; Standard sind 10 Minuten.",
         "historyPreview": "{{count}} fehlerhafte Verlaufsindizes können neu aufgebaut werden. Der Chatverlauf bleibt unverändert.",
         "historySuccess": "{{count}} ungültige Verlaufsindizes zurückgesetzt. Starten Sie den Client neu und öffnen Sie die Chats erneut, um sie neu aufzubauen. Sicherungen wurden aufbewahrt.",
         "historyNoChanges": "Keine fehlerhaften Verlaufsindizes gefunden, die sicher neu aufgebaut werden können.",

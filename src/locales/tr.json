@@ -4027,6 +4027,8 @@
         "modeHistoryDesc": "Geçersiz dizinlerden kaynaklanan mesaj düzenleme ve sohbet dallandırma hatalarını giderir.",
         "historyLiveHint": "İstemci çalışırken onarım yapabilirsiniz. Ardından istemciyi yeniden başlatıp sohbetleri tekrar açın.",
         "historyDescription": "Seçilen sohbetleri ve kaynak geçmişlerini denetleyip yalnızca geçersiz sayfalama dizinlerini sıfırlar. Mesajlar, hesaplar ve Provider ayarları değişmez. Onarım istemci açıkken yapılabilir; dizinleri yeniden yüklemek için ardından istemciyi yeniden başlatın.",
+        "historyScanBudgetLabel": "Tam tarama zaman sınırı (dakika)",
+        "historyScanBudgetHint": "Tam onarım, seçilen örneklerdeki tüm geçmişi tarar. Her örnek için 1–240 dakika ayarlayın; varsayılan 10 dakikadır.",
         "historyPreview": "Yeniden oluşturulabilecek {{count}} geçersiz geçmiş dizini bulundu. Sohbet kayıtları değişmez.",
         "historySuccess": "{{count}} geçersiz geçmiş dizini sıfırlandı. Yeniden oluşturmak için istemciyi yeniden başlatıp sohbetleri tekrar açın. Yedekler korundu.",
         "historyNoChanges": "Güvenle yeniden oluşturulabilecek geçersiz geçmiş dizini bulunamadı.",

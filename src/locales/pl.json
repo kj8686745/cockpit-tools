@@ -4027,6 +4027,8 @@
         "modeHistoryDesc": "Naprawia błędy edycji wiadomości i tworzenia gałęzi rozmów spowodowane nieprawidłowymi indeksami.",
         "historyLiveHint": "Możesz naprawiać przy uruchomionym kliencie. Potem uruchom go ponownie i otwórz czaty.",
         "historyDescription": "Sprawdza wybrane czaty i ich historię źródłową, resetując tylko nieprawidłowe indeksy stron. Wiadomości, konta i ustawienia Provider pozostają bez zmian. Naprawa działa przy otwartym kliencie; uruchom go ponownie, aby wczytać indeksy.",
+        "historyScanBudgetLabel": "Limit czasu pełnego skanowania (minuty)",
+        "historyScanBudgetHint": "Pełna naprawa skanuje całą historię wybranych instancji. Ustaw od 1 do 240 minut na instancję; domyślnie jest to 10 minut.",
         "historyPreview": "Znaleziono {{count}} nieprawidłowych indeksów historii możliwych do odbudowy. Wiadomości pozostaną bez zmian.",
         "historySuccess": "Zresetowano {{count}} nieprawidłowych indeksów historii. Uruchom klienta ponownie i otwórz czaty, aby je odbudować. Kopie zapasowe zachowano.",
         "historyNoChanges": "Nie znaleziono nieprawidłowych indeksów historii, które można bezpiecznie odbudować.",

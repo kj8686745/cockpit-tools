@@ -4159,6 +4159,8 @@
         "modeHistoryDesc": "修復索引異常導致的訊息編輯和建立聊天分支失敗。",
         "historyLiveHint": "可在用戶端執行時直接修復。完成後請重新啟動用戶端並重新開啟會話。",
         "historyDescription": "檢查所選會話及祖先歷史，僅重設異常的分頁索引。聊天記錄、帳號與 Provider 保持原樣；支援執行中修復，完成後重新啟動用戶端以重新載入索引。",
+        "historyScanBudgetLabel": "完整掃描時限（分鐘）",
+        "historyScanBudgetHint": "完整修復會掃描所選執行個體的所有歷史記錄。每個執行個體可設定 1–240 分鐘；預設為 10 分鐘。",
         "historyPreview": "發現 {{count}} 段可重建的異常歷史索引；聊天記錄保持原樣。",
         "historySuccess": "已重設 {{count}} 段異常歷史索引。請重新啟動用戶端並重新開啟會話以重建；備份已保留。",
         "historyNoChanges": "未發現可安全重建的異常歷史索引。",
