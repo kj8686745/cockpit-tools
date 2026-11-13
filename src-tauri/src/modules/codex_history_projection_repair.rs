@@ -20,7 +20,7 @@ mod storage;
 const HISTORY_DB: &str = "thread_history_1.sqlite";
 const STATE_DB: &str = "state_5.sqlite";
 const MAX_ENTRIES: usize = 100_000;
-const MAX_CANDIDATES: usize = 64;
+const MAX_LINEAGE_REPAIRS: usize = 64;
 pub(crate) const MIN_SCAN_BUDGET_MINUTES: u16 = 1;
 pub(crate) const DEFAULT_SCAN_BUDGET_MINUTES: u16 = 10;
 pub(crate) const MAX_SCAN_BUDGET_MINUTES: u16 = 240;
@@ -294,13 +294,7 @@ pub(crate) fn scan_with_budget(
         .filter_map(files::Evidence::lineage_repair)
         .collect::<Vec<_>>();
     lineage_repairs.sort_by(|a, b| a.source_id.cmp(&b.source_id));
-    if candidates.len() > MAX_CANDIDATES {
-        return Err(error(
-            "LIMIT",
-            "too many damaged projections; select fewer sessions",
-        ));
-    }
-    if lineage_repairs.len() > MAX_CANDIDATES {
+    if lineage_repairs.len() > MAX_LINEAGE_REPAIRS {
         return Err(error(
             "LIMIT",
             "too many stale lineage cutoffs; select fewer sessions",

@@ -126,6 +126,43 @@ fn cache(db: &Connection, id: &str, offset: i64, ordinal: i64) {
 }
 
 #[test]
+fn history_projection_repair_allows_more_than_sixty_four_damaged_projections() {
+    let f = Fixture::new();
+    let db = f.db();
+    let state = Connection::open(f.root.join(STATE_DB)).unwrap();
+    let mut ids = vec![ROOT.to_owned()];
+    for index in 0..64_u128 {
+        let id = uuid::Uuid::from_u128(0x5555_5555_5555_4555_8555_0000_0000_0000_u128 + index)
+            .to_string();
+        let minute = index / 60;
+        let second = index % 60;
+        let path = f.root.join(format!(
+            "sessions/rollout-2026-10-24T01-{minute:02}-{second:02}-{id}.jsonl"
+        ));
+        let bytes = records(&id, None, 0);
+        fs::write(&path, &bytes).unwrap();
+        cache(&db, &id, bytes.len() as i64 + 1, 3);
+        state
+            .execute(
+                "INSERT INTO threads VALUES (?1,?2)",
+                [id.as_str(), path.to_str().unwrap()],
+            )
+            .unwrap();
+        ids.push(id);
+    }
+
+    let plan = scan(&f.root, None, &|_, _| {}).unwrap();
+    assert_eq!(plan.candidate_count(), 65);
+    let backup = f.root.join("many-projections-backup");
+    assert_eq!(apply(&f.root, &plan, &backup).unwrap(), 65);
+    for id in ids {
+        assert_eq!(f.count(&id), 0, "projection rows remain for {id}");
+    }
+    assert_eq!(f.count(CHILD), 1);
+    assert!(!f.plan().has_changes());
+}
+
+#[test]
 fn history_projection_repair_zstd_ancestor_uses_physical_ids_and_keeps_original_bytes() {
     let f = Fixture::new();
     let before_parent = fs::read(&f.parent).unwrap();

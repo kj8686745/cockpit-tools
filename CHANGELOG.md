@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.3.85] - 2026-11-13
+
+### Fixed
+
+- **Codex history repair**: Allow repairing more than 64 damaged projections in one full scan, subject to the existing session, time, and backup bounds.
+
 ## [1.3.84] - 2026-11-13
 
 ### Fixed
