@@ -223,23 +223,31 @@ fn history_projection_repair_reports_duplicate_ordinals_and_preserves_affected_c
     let f = Fixture::new();
     let mut original = records(ROOT, None, 0);
     for kind in ["token_count", "thread_settings_applied"] {
-        original.extend(serde_json::to_vec(&json!({
-            "ordinal":3,"type":"event_msg","payload":{"type":kind}
-        })).unwrap());
+        original.extend(
+            serde_json::to_vec(&json!({
+                "ordinal":3,"type":"event_msg","payload":{"type":kind}
+            }))
+            .unwrap(),
+        );
         original.push(b'\n');
     }
     let compressed = zstd::stream::encode_all(original.as_slice(), 0).unwrap();
     fs::write(&f.parent, &compressed).unwrap();
-    let other = f.root.join(format!("sessions/rollout-2026-10-24T00-00-02-{OTHER}.jsonl"));
+    let other = f.root.join(format!(
+        "sessions/rollout-2026-10-24T00-00-02-{OTHER}.jsonl"
+    ));
     let other_bytes = records(OTHER, None, 0);
     fs::write(other, &other_bytes).unwrap();
     cache(&f.db(), OTHER, other_bytes.len() as i64 + 100, 3);
 
     let plan = scan(&f.root, None, &|_, _| {}).unwrap();
-    assert_eq!(plan.duplicate_ordinals, [
-        (ROOT.to_owned(), ROOT.to_owned(), 3),
-        (CHILD.to_owned(), ROOT.to_owned(), 3),
-    ]);
+    assert_eq!(
+        plan.duplicate_ordinals,
+        [
+            (ROOT.to_owned(), ROOT.to_owned(), 3),
+            (CHILD.to_owned(), ROOT.to_owned(), 3),
+        ]
+    );
     assert_eq!(plan.candidate_count(), 1);
     assert_eq!(apply(&f.root, &plan, &f.root.join("backup")).unwrap(), 1);
     assert_eq!(fs::read(&f.parent).unwrap(), compressed);
@@ -272,13 +280,16 @@ fn history_projection_repair_streams_oversized_compressed_rollout() {
     let mut encoder = zstd::stream::write::Encoder::new(file, 1).unwrap();
     let original = records(ROOT, None, 0);
     encoder.write_all(&original).unwrap();
-    encoder.write_all(b"{\"ordinal\":3,\"payload\":{\"text\":\"").unwrap();
+    encoder
+        .write_all(b"{\"ordinal\":3,\"payload\":{\"text\":\"")
+        .unwrap();
     let block = [b'x'; 64 * 1024];
     for _ in 0..1025 {
         encoder.write_all(&block).unwrap();
     }
     encoder.write_all(b"\"}}\n").unwrap();
-    let mut decoded_len = original.len() + 1025 * block.len()
+    let mut decoded_len = original.len()
+        + 1025 * block.len()
         + b"{\"ordinal\":3,\"payload\":{\"text\":\"\"}}\n".len();
     let padding = "x".repeat(32 * 1024 - 64);
     let mut ordinal = 4;
@@ -300,7 +311,10 @@ fn history_projection_repair_streams_oversized_compressed_rollout() {
     assert_eq!(plan.sources[ROOT].decoded_bytes, decoded_len as u64);
     assert_eq!(plan.candidate_count(), 1);
     assert_eq!(f.count(ROOT), 1);
-    assert_eq!(apply(&f.root, &plan, &f.root.join("large-backup")).unwrap(), 1);
+    assert_eq!(
+        apply(&f.root, &plan, &f.root.join("large-backup")).unwrap(),
+        1
+    );
     assert_eq!(f.count(ROOT), 0);
     assert_eq!(f.count(CHILD), 1);
 }
@@ -613,8 +627,14 @@ fn history_projection_repair_source_change_before_commit_rolls_back() {
 fn history_projection_repair_budget_and_profile_scope_are_enforced() {
     let budget = Budget {
         started: Instant::now() - Duration::from_secs(46),
+        timeout: Duration::from_secs(45),
     };
     assert!(budget.check().unwrap_err().contains("LIMIT"));
+    let adjustable = Budget {
+        started: Instant::now() - Duration::from_secs(46),
+        timeout: Duration::from_secs(60),
+    };
+    assert!(adjustable.check().is_ok());
     let f = Fixture::new();
     let other = Fixture::new();
     assert!(apply(&other.root, &f.plan(), &other.root.join("backup"))

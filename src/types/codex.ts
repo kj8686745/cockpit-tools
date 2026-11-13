@@ -441,6 +441,7 @@ export interface CodexSessionVisibilityRepairRequestOptions {
   targetInstanceId?: string | null;
   repairInstanceIds?: string[] | null;
   sessionIds?: string[] | null;
+  historyScanBudgetMinutes?: number; // 历史索引完整扫描时限，单位分钟；后端限制 1 到 240 分钟。
 }
 
 export interface CodexSessionVisibilityRepairProgress {

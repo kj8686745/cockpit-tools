@@ -1320,10 +1320,28 @@
 }
 
 .codex-visibility-repair-field > span,
+.codex-visibility-repair-field > label,
 .codex-visibility-repair-scope__title {
   color: var(--text-secondary);
   font-size: 12px;
   font-weight: 600;
+}
+
+.codex-visibility-repair-field input[type="number"] {
+  box-sizing: border-box;
+  width: min(100%, 180px);
+  min-height: 40px;
+  padding: 8px 10px;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+
+.codex-visibility-repair-field > small {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .codex-visibility-repair-instance-select .single-select-dropdown-trigger {

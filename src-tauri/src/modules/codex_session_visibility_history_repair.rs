@@ -48,8 +48,15 @@ fn scan_history_projections_for_instances(
                 Some(instance),
             );
         };
-        let plan = history::scan(&instance.data_dir, selection.session_ids(), &progress)
-            .map_err(history_repair_error)?;
+        let scan_budget =
+            std::time::Duration::from_secs(u64::from(options.history_scan_budget_minutes) * 60);
+        let plan = history::scan_with_budget(
+            &instance.data_dir,
+            selection.session_ids(),
+            scan_budget,
+            &progress,
+        )
+        .map_err(history_repair_error)?;
         let running = is_instance_running(instance, &process_entries);
         plans.push((plan, running));
     }
@@ -60,15 +67,23 @@ fn history_duplicate_ordinals_warning(
     instances: &[CodexSyncInstance],
     plans: &[(modules::codex_history_projection_repair::Plan, bool)],
 ) -> Option<String> {
-    let affected = instances.iter().zip(plans).flat_map(|(instance, (plan, _))| {
-        plan.duplicate_ordinals.iter().map(move |(id, source, ordinal)| {
-            format!("{}: {id} → {source} ({ordinal})", instance.name)
+    let affected = instances
+        .iter()
+        .zip(plans)
+        .flat_map(|(instance, (plan, _))| {
+            plan.duplicate_ordinals
+                .iter()
+                .map(move |(id, source, ordinal)| {
+                    format!("{}: {id} → {source} ({ordinal})", instance.name)
+                })
         })
-    }).collect::<Vec<_>>();
-    (!affected.is_empty()).then(|| history_repair_message(
-        "historyDuplicateOrdinals",
-        &[("details", &affected.join("\n"))],
-    ))
+        .collect::<Vec<_>>();
+    (!affected.is_empty()).then(|| {
+        history_repair_message(
+            "historyDuplicateOrdinals",
+            &[("details", &affected.join("\n"))],
+        )
+    })
 }
 
 fn repair_history_projections_for_instances(
@@ -79,7 +94,11 @@ fn repair_history_projections_for_instances(
     instances: Vec<CodexSyncInstance>,
 ) -> Result<CodexSessionVisibilityRepairSummary, String> {
     let plans = scan_history_projections_for_instances(
-        options, &run_id, progress_reporter, &selection, &instances,
+        options,
+        &run_id,
+        progress_reporter,
+        &selection,
+        &instances,
     )?;
     apply_history_projection_plans(options, run_id, progress_reporter, &instances, plans)
 }
@@ -178,7 +197,10 @@ fn apply_history_projection_plans(
     if !skipped.is_empty() {
         let missing = history_repair_message(
             "historySkippedSources",
-            &[("count", &skipped.len().to_string()), ("details", &skipped.join("\n"))],
+            &[
+                ("count", &skipped.len().to_string()),
+                ("details", &skipped.join("\n")),
+            ],
         );
         summary.history_repair_warning = Some(match summary.history_repair_warning.take() {
             Some(warning) => format!("{warning}\n\n{missing}"),

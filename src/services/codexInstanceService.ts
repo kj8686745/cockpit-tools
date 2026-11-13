@@ -384,6 +384,7 @@ export async function repairSessionVisibilityAcrossInstances(
     targetInstanceId: options?.targetInstanceId ?? null,
     repairInstanceIds: options?.repairInstanceIds ?? null,
     sessionIds: options?.sessionIds ?? null,
+    historyScanBudgetMinutes: options?.historyScanBudgetMinutes ?? null,
   });
 }
 

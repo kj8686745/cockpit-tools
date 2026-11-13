@@ -18,6 +18,9 @@ const HISTORY_DB: &str = "thread_history_1.sqlite";
 const STATE_DB: &str = "state_5.sqlite";
 const MAX_ENTRIES: usize = 100_000;
 const MAX_CANDIDATES: usize = 64;
+pub(crate) const MIN_SCAN_BUDGET_MINUTES: u16 = 1;
+pub(crate) const DEFAULT_SCAN_BUDGET_MINUTES: u16 = 10;
+pub(crate) const MAX_SCAN_BUDGET_MINUTES: u16 = 240;
 
 #[derive(Debug)]
 pub(crate) struct Plan {
@@ -27,6 +30,8 @@ pub(crate) struct Plan {
     sources: HashMap<String, files::Evidence>,
     selected_paths: Vec<(String, String)>,
     candidates: Vec<Checkpoint>,
+    /// 保留扫描时限，以同一预算保护后续备份和索引事务。
+    scan_budget: Duration,
     // Requested/projected ID and missing source ID. Their existing indexes are retained.
     pub(crate) skipped_sources: Vec<(String, String)>,
     pub(crate) duplicate_ordinals: Vec<(String, String, u64)>,
@@ -50,21 +55,33 @@ struct Checkpoint {
 }
 
 struct Budget {
+    /// 当前扫描阶段开始时间，所有 rollout 共用一个总时限。
     started: Instant,
+    /// 从界面传入并经后端限制后的阶段时限。
+    timeout: Duration,
 }
 
 impl Budget {
-    fn new() -> Self {
+    /// 为历史扫描或写入阶段建立独立总时限。
+    ///
+    /// # Arguments
+    /// * `timeout` - 当前阶段的最长运行时间。
+    fn new(timeout: Duration) -> Self {
         Self {
             started: Instant::now(),
+            timeout,
         }
     }
 
+    /// 在昂贵的目录、文件或数据库操作之间检查阶段总时限。
+    ///
+    /// # Returns
+    /// 剩余时间有效时返回 `Ok(())`，超时后返回可供界面显示的限制错误。
     fn check(&self) -> Result<(), String> {
-        if self.started.elapsed() > Duration::from_secs(45) {
+        if self.started.elapsed() > self.timeout {
             return Err(error(
                 "LIMIT",
-                "history scan exceeded its time budget; select fewer sessions",
+                "history scan exceeded the configured time budget; increase the limit or select fewer sessions",
             ));
         }
         Ok(())
@@ -111,7 +128,28 @@ pub(crate) fn scan(
     selected_session_ids: Option<&HashSet<String>>,
     on_progress: &dyn Fn(usize, usize),
 ) -> Result<Plan, String> {
-    let mut budget = Budget::new();
+    scan_with_budget(
+        profile,
+        selected_session_ids,
+        Duration::from_secs(u64::from(DEFAULT_SCAN_BUDGET_MINUTES) * 60),
+        on_progress,
+    )
+}
+
+/// 在 blocking worker 上只读扫描 Codex 历史索引，并使用调用方配置的阶段时限。
+///
+/// # Arguments
+/// * `profile` - Codex 实例的数据目录。
+/// * `selected_session_ids` - 指定时只检查这些会话；为空时检查全部投影会话。
+/// * `scan_budget` - 本实例完整扫描及后续应用阶段各自的最大运行时间。
+/// * `on_progress` - 按已扫描投影数报告进度。
+pub(crate) fn scan_with_budget(
+    profile: &Path,
+    selected_session_ids: Option<&HashSet<String>>,
+    scan_budget: Duration,
+    on_progress: &dyn Fn(usize, usize),
+) -> Result<Plan, String> {
+    let mut budget = Budget::new(scan_budget);
     let profile = files::profile_root(profile)?;
     let history_path = profile.join(HISTORY_DB);
     if matches!(history_path.symlink_metadata(), Err(e) if e.kind()==std::io::ErrorKind::NotFound) {
@@ -122,6 +160,7 @@ pub(crate) fn scan(
             sources: HashMap::new(),
             selected_paths: vec![],
             candidates: vec![],
+            scan_budget,
             skipped_sources: vec![],
             duplicate_ordinals: vec![],
         });
@@ -158,7 +197,10 @@ pub(crate) fn scan(
                     continue;
                 }
                 Err(files::SourceError::DuplicateOrdinal { source_id, ordinal }) => {
-                    return Err(error("DUPLICATE_ORDINAL", format!("{source_id}: {ordinal}")));
+                    return Err(error(
+                        "DUPLICATE_ORDINAL",
+                        format!("{source_id}: {ordinal}"),
+                    ));
                 }
                 Err(files::SourceError::Invalid(error)) => return Err(error),
             };
@@ -246,6 +288,7 @@ pub(crate) fn scan(
         sources,
         selected_paths,
         candidates,
+        scan_budget,
         skipped_sources,
         duplicate_ordinals,
     })
@@ -269,7 +312,7 @@ fn apply_with_checkpoints(
     if plan.candidates.is_empty() {
         return Ok(0);
     }
-    let mut budget = Budget::new();
+    let mut budget = Budget::new(plan.scan_budget);
     for source in plan.sources.values() {
         source.recheck(&mut budget)?;
     }

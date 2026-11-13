@@ -1960,6 +1960,60 @@ mod account_egress_proxy_tests {
         assert_eq!(args[0], "--proxy-server=socks5://127.0.0.1:1080");
         assert!(args[1].contains("127.0.0.1"));
     }
+
+    #[test]
+    fn managed_proxy_merges_only_private_network_bypass_arguments() {
+        let configured =
+            super::super::codex_proxy_direct_hosts::parse("mcp.lan;10.40.0.0/16").unwrap();
+        let mut args = [
+            "--proxy-bypass-list=localhost;172.18.7.72/16;*;8.8.8.8",
+            "--proxy-bypass-list",
+            "192.168.4.20/16,172.16.0.0/12",
+            "--no-proxy-server",
+            "--other",
+        ]
+        .map(str::to_string)
+        .to_vec();
+
+        append_electron_proxy_args_with_direct_hosts(
+            &mut args,
+            "socks5h://127.0.0.1:1080",
+            &configured,
+        );
+
+        assert_eq!(
+            args,
+            vec![
+                "--other",
+                "--proxy-server=socks5://127.0.0.1:1080",
+                "--proxy-bypass-list=localhost;127.0.0.1;[::1];mcp.lan;*.mcp.lan;10.40.0.0/16;172.18.0.0/16;192.168.0.0/16;172.16.0.0/12",
+            ]
+        );
+    }
+
+    #[test]
+    fn private_bypass_rule_rejects_wildcard_public_and_overbroad_networks() {
+        for rule in [
+            "*",
+            "<local>",
+            "8.8.8.8",
+            "10.0.0.0/7",
+            "172.18.0.0/11",
+            "192.168.0.0/15",
+            "172.18.*.*",
+            "172.18.7.72:18089",
+        ] {
+            assert_eq!(private_electron_bypass_rule(rule), None, "{rule}");
+        }
+        assert_eq!(
+            private_electron_bypass_rule("172.18.7.72/16").as_deref(),
+            Some("172.18.0.0/16")
+        );
+        assert_eq!(
+            private_electron_bypass_rule("fd12::1234/7").as_deref(),
+            Some("fc00::/7")
+        );
+    }
 }
 
 pub fn append_global_electron_proxy_args(args: &mut Vec<String>) {
@@ -2005,13 +2059,111 @@ fn append_electron_proxy_args_with_direct_hosts(
     if proxy_url.is_empty() {
         return;
     }
+    // 保留旧版自定义启动参数中的私网绕过规则，并与新版共享直连列表合并。
+    let mut merged_direct_hosts = direct_hosts.to_vec();
+    for host in private_bypass_arguments(args) {
+        if !merged_direct_hosts.contains(&host) {
+            merged_direct_hosts.push(host);
+        }
+    }
     clear_electron_proxy_args(args);
     let chromium_proxy_url = proxy_url.replace("socks5h://", "socks5://");
     args.push(format!("--proxy-server={chromium_proxy_url}"));
     args.push(format!(
         "--proxy-bypass-list={}",
-        super::codex_proxy_direct_hosts::chromium_rules(direct_hosts)
+        super::codex_proxy_direct_hosts::chromium_rules(&merged_direct_hosts)
     ));
+}
+
+/// 从额外启动参数中提取受限的 RFC1918、回环及 IPv6 ULA 绕过项。
+///
+/// # Arguments
+/// * `args` - 解析后的 Chromium 启动参数。
+///
+/// # Returns
+/// 规范化并去重的私网直连地址；公网、通配符和无效规则均被丢弃。
+fn private_bypass_arguments(args: &[String]) -> Vec<String> {
+    let mut hosts = Vec::new();
+    let mut args = args.iter().peekable();
+    while let Some(argument) = args.next() {
+        let value = if let Some(value) = argument.strip_prefix("--proxy-bypass-list=") {
+            Some(value)
+        } else if argument == "--proxy-bypass-list"
+            && args.peek().is_some_and(|next| !next.starts_with('-'))
+        {
+            args.next().map(String::as_str)
+        } else {
+            None
+        };
+        if let Some(value) = value {
+            for entry in value.split([';', ',']) {
+                if let Some(host) = private_electron_bypass_rule(entry.trim()) {
+                    if !hosts.contains(&host) {
+                        hosts.push(host);
+                    }
+                }
+            }
+        }
+    }
+    hosts
+}
+
+/// 仅接受完全落在私有、回环或 IPv6 ULA 范围内的地址和网络。
+///
+/// # Arguments
+/// * `rule` - 单个 IP 地址或 CIDR 规则。
+///
+/// # Returns
+/// 规范化规则；公网、越界网络和非 IP 规则返回 `None`。
+fn private_electron_bypass_rule(rule: &str) -> Option<String> {
+    let (address, prefix) = match rule.split_once('/') {
+        Some((address, prefix)) => (address, Some(prefix.parse::<u8>().ok()?)),
+        None => (rule, None),
+    };
+    let address = address
+        .strip_prefix('[')
+        .and_then(|address| address.strip_suffix(']'))
+        .unwrap_or(address);
+    match address.parse::<std::net::IpAddr>().ok()? {
+        std::net::IpAddr::V4(address) => {
+            let minimum_prefix = match address.octets() {
+                [10, ..] | [127, ..] => 8,
+                [172, second, ..] if (16..=31).contains(&second) => 12,
+                [192, 168, ..] => 16,
+                _ => return None,
+            };
+            let bits = prefix.unwrap_or(32);
+            if bits < minimum_prefix || bits > 32 {
+                return None;
+            }
+            let network = std::net::Ipv4Addr::from(u32::from(address) & (u32::MAX << (32 - bits)));
+            Some(if prefix.is_some() {
+                format!("{network}/{bits}")
+            } else {
+                address.to_string()
+            })
+        }
+        std::net::IpAddr::V6(address) => {
+            let minimum_prefix = if address.is_loopback() {
+                128
+            } else if address.octets()[0] & 0xfe == 0xfc {
+                7
+            } else {
+                return None;
+            };
+            let bits = prefix.unwrap_or(128);
+            if bits < minimum_prefix || bits > 128 {
+                return None;
+            }
+            let network =
+                std::net::Ipv6Addr::from(u128::from(address) & (u128::MAX << (128 - bits)));
+            Some(if prefix.is_some() {
+                format!("{network}/{bits}")
+            } else {
+                format!("[{address}]")
+            })
+        }
+    }
 }
 
 fn clear_electron_proxy_args(args: &mut Vec<String>) {

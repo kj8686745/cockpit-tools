@@ -4,12 +4,36 @@ use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{
+    cell::{Cell, RefCell},
     fs,
     io::{self, Read},
+    rc::Rc,
     time::SystemTime,
 };
 
 const MAX_CHAIN_DEPTH: usize = 128;
+
+/// 在 rollout 校验过程中同步计算原始文件哈希，避免完整历史扫描先哈希再解码读取两遍。
+struct HashingReader<'a, R> {
+    inner: R,
+    hasher: Rc<RefCell<Sha256>>,
+    bytes_read: Rc<Cell<u64>>,
+    budget: &'a Budget,
+}
+
+impl<R: Read> Read for HashingReader<'_, R> {
+    fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
+        self.budget.check().map_err(io::Error::other)?;
+        let count = self.inner.read(output)?;
+        if count > 0 {
+            self.hasher.borrow_mut().update(&output[..count]);
+            self.bytes_read
+                .set(self.bytes_read.get().saturating_add(count as u64));
+        }
+        self.budget.check().map_err(io::Error::other)?;
+        Ok(count)
+    }
+}
 
 #[derive(Debug)]
 pub(super) enum SourceError {
@@ -383,17 +407,25 @@ fn next_record<T: DeserializeOwned, R: Read, F: FnMut(&[u8]) -> io::Result<()>>(
 
 fn read(path: &Path, budget: &Budget) -> Result<Evidence, SourceError> {
     let before = stamp(path)?;
-    let hash = digest(path, budget)?;
     let file = fs::File::open(path).map_err(|e| error("IO", e))?;
-    let input: Box<dyn Read> = if path.extension().is_some_and(|e| e == "zst") {
-        let mut decoder =
-            zstd::stream::read::Decoder::new(file).map_err(|e| error("UNSAFE_HISTORY", e))?;
+    // Hash compressed bytes at the file boundary while JSONL parsing consumes the same stream.
+    let hasher = Rc::new(RefCell::new(Sha256::new()));
+    let bytes_read = Rc::new(Cell::new(0_u64));
+    let hashing_file = HashingReader {
+        inner: file,
+        hasher: Rc::clone(&hasher),
+        bytes_read: Rc::clone(&bytes_read),
+        budget,
+    };
+    let input: Box<dyn Read + '_> = if path.extension().is_some_and(|e| e == "zst") {
+        let mut decoder = zstd::stream::read::Decoder::new(hashing_file)
+            .map_err(|e| error("UNSAFE_HISTORY", e))?;
         decoder
             .window_log_max(27)
             .map_err(|e| error("UNSAFE_HISTORY", e))?;
         Box::new(decoder)
     } else {
-        Box::new(file)
+        Box::new(hashing_file)
     };
     let mut records = Records::new(input, |_: &[u8]| {
         std::thread::yield_now();
@@ -405,8 +437,8 @@ fn read(path: &Path, budget: &Budget) -> Result<Evidence, SourceError> {
     if header.kind != "session_meta" {
         return Err(error("UNSAFE_HISTORY", "rollout has no initial session metadata").into());
     }
-    let (expected_id, physical_id) = file_ids(path)
-        .ok_or_else(|| error("UNSAFE_PATH", "noncanonical rollout filename"))?;
+    let (expected_id, physical_id) =
+        file_ids(path).ok_or_else(|| error("UNSAFE_PATH", "noncanonical rollout filename"))?;
     let payload = header.payload.0;
     let metadata_id = uuid::Uuid::parse_str(&payload.id)
         .map_err(|_| error("UNSAFE_HISTORY", "invalid session metadata ID"))?;
@@ -414,23 +446,32 @@ fn read(path: &Path, budget: &Budget) -> Result<Evidence, SourceError> {
         return Err(error(
             "UNSAFE_HISTORY",
             "rollout filename and session metadata disagree",
-        ).into());
+        )
+        .into());
     }
-    let base = payload.history_base.map(|Object(value)| {
-        let id = uuid::Uuid::parse_str(&value.thread_id)
-            .map_err(|_| error("UNSAFE_HISTORY", "invalid ancestor ID"))?
-            .to_string();
-        Ok::<_, String>(Base {
-            id,
-            bytes: value.end_byte_offset,
-            ordinal: value.end_ordinal_exclusive,
+    let base = payload
+        .history_base
+        .map(|Object(value)| {
+            let id = uuid::Uuid::parse_str(&value.thread_id)
+                .map_err(|_| error("UNSAFE_HISTORY", "invalid ancestor ID"))?
+                .to_string();
+            Ok::<_, String>(Base {
+                id,
+                bytes: value.end_byte_offset,
+                ordinal: value.end_ordinal_exclusive,
+            })
         })
-    }).transpose()?;
+        .transpose()?;
     let initial_ordinal = base.as_ref().map_or(0, |base| base.ordinal);
     let mut expected = initial_ordinal;
-    let mut ordinal = header.ordinal.map(|value| {
-        value.as_u64().ok_or_else(|| error("UNSAFE_HISTORY", "rollout record has no ordinal"))
-    }).transpose()?;
+    let mut ordinal = header
+        .ordinal
+        .map(|value| {
+            value
+                .as_u64()
+                .ok_or_else(|| error("UNSAFE_HISTORY", "rollout record has no ordinal"))
+        })
+        .transpose()?;
     loop {
         let next = match ordinal.take() {
             Some(ordinal) => ordinal,
@@ -457,6 +498,32 @@ fn read(path: &Path, budget: &Budget) -> Result<Evidence, SourceError> {
     if expected == initial_ordinal {
         return Err(error("UNSAFE_HISTORY", "rollout contains no ordinal evidence").into());
     }
+    let decoded_bytes = records.position;
+    // Drain the decoder after the final JSON record so trailing compressed frames are included.
+    let mut input = records.into_inner();
+    io::copy(&mut input, &mut io::sink()).map_err(|io_error| error("UNSAFE_HISTORY", io_error))?;
+    if bytes_read.get() < before.length {
+        // Zstandard may leave trailing bytes after its final frame; hash only that unread suffix.
+        let mut suffix = fs::File::open(path).map_err(|io_error| error("IO", io_error))?;
+        std::io::Seek::seek(&mut suffix, std::io::SeekFrom::Start(bytes_read.get()))
+            .map_err(|io_error| error("IO", io_error))?;
+        let mut buffer = [0; 64 * 1024];
+        loop {
+            budget.check()?;
+            let count = suffix
+                .read(&mut buffer)
+                .map_err(|io_error| error("IO", io_error))?;
+            if count == 0 {
+                break;
+            }
+            hasher.borrow_mut().update(&buffer[..count]);
+            bytes_read.set(bytes_read.get().saturating_add(count as u64));
+        }
+    }
+    if bytes_read.get() != before.length {
+        return Err(error("CHANGED", "rollout length changed while hashing").into());
+    }
+    let hash = hasher.borrow().clone().finalize().into();
     if stamp(path)? != before {
         return Err(error("CHANGED", "rollout changed while scanning").into());
     }
@@ -464,7 +531,7 @@ fn read(path: &Path, budget: &Budget) -> Result<Evidence, SourceError> {
         path: path.to_path_buf(),
         stamp: before,
         hash,
-        decoded_bytes: records.position,
+        decoded_bytes,
         initial_ordinal,
         next_ordinal: expected,
         has_ordinals: true,

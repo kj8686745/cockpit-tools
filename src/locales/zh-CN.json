@@ -4988,6 +4988,8 @@
         "modeHistoryDesc": "修复索引异常导致的消息编辑和创建聊天分支失败。",
         "historyLiveHint": "可在客户端运行时直接修复。完成后请重启客户端并重新打开会话。",
         "historyDescription": "检查所选会话及祖先历史，仅重置异常的分页索引。聊天记录、账号与 Provider 保持原样；支持运行中修复，完成后重启客户端以重新加载索引。",
+        "historyScanBudgetLabel": "完整扫描时限（分钟）",
+        "historyScanBudgetHint": "完整修复会扫描所选实例的全部历史会话。每个实例可设置 1–240 分钟；默认 10 分钟。",
         "historyPreview": "发现 {{count}} 段可重建的异常历史索引；聊天记录保持原样。",
         "historySuccess": "已重置 {{count}} 段异常历史索引。请重启客户端并重新打开会话以重建；备份已保留。",
         "historyNoChanges": "未发现可安全重建的异常历史索引。",

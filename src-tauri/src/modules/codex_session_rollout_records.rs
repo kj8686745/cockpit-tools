@@ -59,6 +59,14 @@ impl<R: Read, F: FnMut(&[u8]) -> io::Result<()>> Records<R, F> {
         }
     }
 
+    /// 在调用方已读到记录流末尾后，取回底层输入以完成校验或排空解码器缓冲。
+    ///
+    /// # Returns
+    /// 返回由记录读取器持有的原始输入流。
+    pub fn into_inner(self) -> R {
+        self.input
+    }
+
     fn refill(&mut self) -> io::Result<()> {
         self.buffer.copy_within(self.end..self.end + self.tail, 0);
         let mut length = self.tail;

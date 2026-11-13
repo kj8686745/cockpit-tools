@@ -95,11 +95,17 @@ test('history repair ignores pending providers and passes only the selected inst
   assert.equal(app.rendered().some((node) => node.type === 'dropdown' && node.props.ariaLabel === prefix + 'targetProvider'), false);
   assert.ok(app.rendered().some((node) => contains(node, prefix + 'historyDescription')));
   assert.equal(app.rendered().some((node) => contains(node, 'provider migration description')), false);
+  const budgetInput = app.rendered().find((node) => node.type === 'input' && node.props.id === 'codex-history-scan-budget-minutes');
+  assert.ok(budgetInput, 'history repair exposes a configurable scan budget');
+  assert.equal(budgetInput.props.value, 10, 'the default scan budget is ten minutes');
+  budgetInput.props.onChange({ target: { value: '37' } });
+  await settlePromises();
   assert.equal(app.button('preview').props.disabled, false);
   app.button('preview').props.onClick();
   await settlePromises();
   assert.deepEqual(app.calls[0].options, { mode: 'history', dryRun: true,
-    targetInstanceId: null, targetProvider: null, repairInstanceIds: ['default'], sessionIds: ['chat-a', 'chat-b'] });
+    targetInstanceId: null, targetProvider: null, repairInstanceIds: ['default'], sessionIds: ['chat-a', 'chat-b'],
+    historyScanBudgetMinutes: 37 });
   assert.ok(app.rendered().some((node) => contains(node, 'history preview from host')));
   app.button('confirmRepair').props.onClick();
   await settlePromises();
@@ -290,7 +296,8 @@ test('all-chat/all-instance history requests retain null scopes without inferrin
   app.button('preview').props.onClick();
   await settlePromises();
   assert.deepEqual(app.calls[0].options, { mode: 'history', dryRun: true,
-    targetInstanceId: null, targetProvider: null, repairInstanceIds: null, sessionIds: null });
+    targetInstanceId: null, targetProvider: null, repairInstanceIds: null, sessionIds: null,
+    historyScanBudgetMinutes: 10 });
   app.h.unmount();
 });
 
@@ -317,10 +324,13 @@ test('changing repair kind and reopening initialize the correct mode and selecte
   await settlePromises();
   app.mode('modeDeep');
   app.button('scopeAll').props.onClick();
+  assert.ok(app.rendered().some((node) => node.type === 'input' && node.props.id === 'codex-history-scan-budget-minutes'),
+    'the full repair path also exposes the history scan budget');
   app.button('preview').props.onClick();
   await settlePromises();
   assert.equal(app.calls[0].options.mode, 'deep');
   assert.equal(app.calls[0].options.sessionIds, null);
+  assert.equal(app.calls[0].options.historyScanBudgetMinutes, 10);
   const loads = app.providerLoads();
   app.kind('history');
   await settlePromises();

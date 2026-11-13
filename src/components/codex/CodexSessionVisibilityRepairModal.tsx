@@ -26,6 +26,10 @@ type InstanceRepairScope = "target" | "all";
 
 const SESSION_VISIBILITY_REPAIR_PROGRESS_EVENT =
   "codex:session_visibility_repair_progress";
+// 完整历史扫描默认 10 分钟，后端允许用户按实例数据量调到 1 至 240 分钟。
+const DEFAULT_HISTORY_SCAN_BUDGET_MINUTES = 10;
+const MIN_HISTORY_SCAN_BUDGET_MINUTES = 1;
+const MAX_HISTORY_SCAN_BUDGET_MINUTES = 240;
 
 interface CodexSessionVisibilityRepairModalProps {
   open: boolean;
@@ -243,6 +247,10 @@ export function CodexSessionVisibilityRepairModal({
   const [selectedInstanceScope, setSelectedInstanceScope] =
     useState<InstanceRepairScope>("target");
   const [selectedScope, setSelectedScope] = useState<RepairScope>("all");
+  // 完整历史扫描覆盖全部投影会话；保存本次修复使用的总时限，避免固定短超时中断。
+  const [historyScanBudgetMinutes, setHistoryScanBudgetMinutes] = useState(
+    DEFAULT_HISTORY_SCAN_BUDGET_MINUTES,
+  );
   const [instanceList, setInstanceList] =
     useState<CodexSessionVisibilityRepairInstanceList | null>(null);
   const [selectedInstanceId, setSelectedInstanceId] = useState("");
@@ -312,6 +320,8 @@ export function CodexSessionVisibilityRepairModal({
   );
   const effectiveScope = canUseSelectedScope ? selectedScope : "all";
   const isHistoryRepair = selectedMode === "history";
+  // Full visibility repair also invokes the complete history-index scan.
+  const usesHistoryScanBudget = isHistoryRepair || selectedMode === "deep";
   const usesProvider = selectedMode === "quick" || selectedMode === "deep";
   const startDisabled =
     running ||
@@ -500,6 +510,26 @@ export function CodexSessionVisibilityRepairModal({
     }
   }, [running, setError, status]);
 
+  /** 更新完整历史扫描时限并使旧预览失效。
+   *
+   * @param rawValue 输入框提供的分钟数字符串。
+   * @returns 无；更新本地时限状态并清除过期预览。
+   */
+  const handleHistoryScanBudgetChange = useCallback(
+    (rawValue: string) => {
+      const parsed = Number(rawValue);
+      if (!Number.isFinite(parsed)) return;
+      const minutes = Math.max(
+        MIN_HISTORY_SCAN_BUDGET_MINUTES,
+        Math.min(MAX_HISTORY_SCAN_BUDGET_MINUTES, Math.trunc(parsed)),
+      );
+      setHistoryScanBudgetMinutes(minutes);
+      setError(null);
+      clearPreview();
+    },
+    [clearPreview, setError],
+  );
+
   const buildRepairOptions = useCallback(
     (dryRun: boolean) => {
       const sessionIds =
@@ -513,11 +543,14 @@ export function CodexSessionVisibilityRepairModal({
         targetProvider: usesProvider ? selectedProvider : null,
         repairInstanceIds,
         sessionIds,
+        ...(usesHistoryScanBudget ? { historyScanBudgetMinutes } : {}),
       };
     },
     [
       effectiveScope,
+      historyScanBudgetMinutes,
       isHistoryRepair,
+      usesHistoryScanBudget,
       selectedInstanceScope,
       selectedInstanceId,
       selectedMode,
@@ -708,6 +741,31 @@ export function CodexSessionVisibilityRepairModal({
                 </>
               : description ?? t("codex.sessionManager.repairModal.description")}
           </p>
+          {usesHistoryScanBudget && <div className="codex-visibility-repair-field">
+            <label htmlFor="codex-history-scan-budget-minutes">
+              {t(
+                "codex.sessionManager.repairModal.historyScanBudgetLabel",
+                "完整扫描时限（分钟）",
+              )}
+            </label>
+            <input
+              id="codex-history-scan-budget-minutes"
+              type="number"
+              min={MIN_HISTORY_SCAN_BUDGET_MINUTES}
+              max={MAX_HISTORY_SCAN_BUDGET_MINUTES}
+              step={1}
+              value={historyScanBudgetMinutes}
+              onChange={(event) => handleHistoryScanBudgetChange(event.target.value)}
+              disabled={running}
+              aria-describedby="codex-history-scan-budget-hint"
+            />
+            <small id="codex-history-scan-budget-hint">
+              {t(
+                "codex.sessionManager.repairModal.historyScanBudgetHint",
+                "完整修复会扫描所选实例的全部历史会话。可设置 1–240 分钟；默认 10 分钟。",
+              )}
+            </small>
+          </div>}
           <div className="codex-visibility-repair-options">
             {!isHistoryRepair && <div className="codex-visibility-repair-scope">
               <span className="codex-visibility-repair-scope__title">

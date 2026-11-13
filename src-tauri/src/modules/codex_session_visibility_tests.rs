@@ -839,6 +839,40 @@ use super::*;
     }
 
     #[test]
+    fn full_history_scan_budget_uses_a_default_and_enforces_backend_bounds() {
+        let make_history = || {
+            CodexSessionVisibilityRepairOptions::for_mode(
+                CodexSessionVisibilityRepairMode::History,
+            )
+        };
+
+        assert_eq!(
+            make_history()
+                .with_history_scan_budget_minutes(None)
+                .history_scan_budget_minutes,
+            10
+        );
+        assert_eq!(
+            make_history()
+                .with_history_scan_budget_minutes(Some(37))
+                .history_scan_budget_minutes,
+            37
+        );
+        assert_eq!(
+            make_history()
+                .with_history_scan_budget_minutes(Some(0))
+                .history_scan_budget_minutes,
+            1
+        );
+        assert_eq!(
+            make_history()
+                .with_history_scan_budget_minutes(Some(u16::MAX))
+                .history_scan_budget_minutes,
+            240
+        );
+    }
+
+    #[test]
     fn auto_repair_mode_stays_on_official_state_db_only() {
         let options = CodexSessionVisibilityRepairOptions::for_auto_repair_mode(
             CodexSessionVisibilityAutoRepairMode::Current,

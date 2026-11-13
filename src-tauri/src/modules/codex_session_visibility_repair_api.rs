@@ -224,6 +224,8 @@ struct CodexSessionVisibilityRepairOptions {
     normalize_global_state: bool,
     require_stopped_instances: bool,
     sidebar_visible_only: bool,
+    /// 每个所选实例的历史扫描与应用阶段时限，分钟数在构造选项时受上下限约束。
+    history_scan_budget_minutes: u16,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -327,6 +329,8 @@ impl CodexSessionVisibilityRepairOptions {
             normalize_global_state: false,
             require_stopped_instances: false,
             sidebar_visible_only: true,
+            history_scan_budget_minutes:
+                modules::codex_history_projection_repair::DEFAULT_SCAN_BUDGET_MINUTES,
         }
     }
 
@@ -346,6 +350,8 @@ impl CodexSessionVisibilityRepairOptions {
             normalize_global_state: true,
             require_stopped_instances: true,
             sidebar_visible_only: false,
+            history_scan_budget_minutes:
+                modules::codex_history_projection_repair::DEFAULT_SCAN_BUDGET_MINUTES,
         }
     }
 
@@ -353,7 +359,8 @@ impl CodexSessionVisibilityRepairOptions {
         match mode {
             CodexSessionVisibilityRepairMode::Quick => Self::official_state_db_only(mode),
             CodexSessionVisibilityRepairMode::Deep => Self::full_provider_migration(),
-            CodexSessionVisibilityRepairMode::History | CodexSessionVisibilityRepairMode::Projects => Self {
+            CodexSessionVisibilityRepairMode::History
+            | CodexSessionVisibilityRepairMode::Projects => Self {
                 repair_referenced_rollouts: false,
                 ..Self::official_state_db_only(mode)
             },
@@ -367,6 +374,23 @@ impl CodexSessionVisibilityRepairOptions {
 
     fn with_dry_run(mut self, dry_run: bool) -> Self {
         self.dry_run = dry_run;
+        self
+    }
+
+    /// 设置完整历史修复的阶段时限，并限制在受支持范围内。
+    ///
+    /// # Arguments
+    /// * `minutes` - 界面指定的分钟数；缺省时使用 10 分钟。
+    ///
+    /// # Returns
+    /// 更新扫描时限后的修复选项。
+    fn with_history_scan_budget_minutes(mut self, minutes: Option<u16>) -> Self {
+        self.history_scan_budget_minutes = minutes
+            .unwrap_or(modules::codex_history_projection_repair::DEFAULT_SCAN_BUDGET_MINUTES)
+            .clamp(
+                modules::codex_history_projection_repair::MIN_SCAN_BUDGET_MINUTES,
+                modules::codex_history_projection_repair::MAX_SCAN_BUDGET_MINUTES,
+            );
         self
     }
 }
@@ -504,9 +528,8 @@ pub fn repair_session_visibility_quick_for_instance(
         // workspace and SSH state before optional history maintenance can use up
         // the budget or hit a quick-scan limit. Failure here must stop the launch.
         let prepared = launch_desktop
-            && prepare_local_project_account_state(&instance).map_err(|error| {
-                format!("CODEX_DESKTOP_STATE_PREPARATION_FAILED: {error}")
-            })?;
+            && prepare_local_project_account_state(&instance)
+                .map_err(|error| format!("CODEX_DESKTOP_STATE_PREPARATION_FAILED: {error}"))?;
         let mut summary = repair_session_visibility_for_instances_with_options(
             CodexSessionVisibilityRepairOptions::for_auto_repair_mode(
                 CodexSessionVisibilityAutoRepairMode::Current,
@@ -596,6 +619,7 @@ pub fn repair_session_visibility_across_instances_with_progress(
         None,
         None,
         false,
+        None,
     )
 }
 
@@ -607,10 +631,17 @@ pub fn repair_session_visibility_across_instances_with_target(
     session_ids: Option<Vec<String>>,
     instance_ids: Option<Vec<String>>,
     dry_run: bool,
+    history_scan_budget_minutes: Option<u16>,
 ) -> Result<CodexSessionVisibilityRepairSummary, String> {
-    let options = CodexSessionVisibilityRepairOptions::for_mode(mode).with_dry_run(dry_run);
-    let target_provider = matches!(mode, CodexSessionVisibilityRepairMode::Quick | CodexSessionVisibilityRepairMode::Deep)
-        .then_some(target_provider).flatten();
+    let options = CodexSessionVisibilityRepairOptions::for_mode(mode)
+        .with_dry_run(dry_run)
+        .with_history_scan_budget_minutes(history_scan_budget_minutes);
+    let target_provider = matches!(
+        mode,
+        CodexSessionVisibilityRepairMode::Quick | CodexSessionVisibilityRepairMode::Deep
+    )
+    .then_some(target_provider)
+    .flatten();
     let selection = RepairTargetSelection::from_inputs(target_provider, session_ids, instance_ids)?;
     repair_session_visibility_across_instances_with_options(
         options,
@@ -658,7 +689,13 @@ fn repair_provider_visibility_for_instances_with_options(
     instances: Vec<CodexSyncInstance>,
 ) -> Result<CodexSessionVisibilityRepairSummary, String> {
     if options.mode == CodexSessionVisibilityRepairMode::History {
-        return repair_history_projections_for_instances(options, run_id, progress_reporter, selection, instances);
+        return repair_history_projections_for_instances(
+            options,
+            run_id,
+            progress_reporter,
+            selection,
+            instances,
+        );
     }
     if instances.is_empty() {
         return Err("未找到要修复的 Codex 实例".to_string());
@@ -1038,8 +1075,12 @@ fn repair_provider_visibility_for_instances_with_options(
 
     // Backup retention is maintenance, not a precondition for launching a
     // repaired instance. A large legacy backup tree must not delay this path.
-    if !options.dry_run && launch_visibility_budget().is_none()
-        && !instances.iter().any(|instance| local_projects::has_pending(&instance.data_dir)) {
+    if !options.dry_run
+        && launch_visibility_budget().is_none()
+        && !instances
+            .iter()
+            .any(|instance| local_projects::has_pending(&instance.data_dir))
+    {
         report_repair_progress(
             progress_reporter,
             &run_id,
@@ -1654,4 +1695,3 @@ fn build_dry_run_summary_message(
         running_suffix
     )
 }
-

@@ -9,6 +9,8 @@ pub async fn codex_repair_session_visibility_across_instances(
     repair_instance_ids: Option<Vec<String>>,
     session_ids: Option<Vec<String>>,
     dry_run: Option<bool>,
+    // 完整历史扫描时限由修复弹窗设置，旧调用缺省时使用默认 10 分钟。
+    history_scan_budget_minutes: Option<u16>,
 ) -> Result<modules::codex_session_visibility::CodexSessionVisibilityRepairSummary, String> {
     let mode =
         mode.unwrap_or(modules::codex_session_visibility::CodexSessionVisibilityRepairMode::Quick);
@@ -55,6 +57,7 @@ pub async fn codex_repair_session_visibility_across_instances(
             session_ids,
             repair_instance_ids,
             dry_run.unwrap_or(false),
+            history_scan_budget_minutes,
         )
     })
     .await
